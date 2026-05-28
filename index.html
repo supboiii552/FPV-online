@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPV Drone Simulator - Bando Boneyard Playground</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Courier New', monospace; }
+        canvas { display: block; }
+        
+        .osd-element {
+            position: absolute;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 16px;
+            pointer-events: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 5;
+        }
+        #osd-left { top: 20px; left: 20px; line-height: 1.6; }
+        #osd-right { top: 20px; right: 20px; text-align: right; line-height: 1.6; }
+        #osd-bottom { bottom: 30px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 18px;}
+        
+        .mode-acro { color: #ff3333; text-shadow: 0 0 8px #ff0000; }
+        .mode-angle { color: #33ff33; }
+        
+        .diff-easy { color: #00ffcc; text-shadow: 0 0 8px #00ffcc; }
+        .diff-medium { color: #ffcc00; text-shadow: 0 0 8px #ffcc00; }
+        .diff-hard { color: #ff3333; text-shadow: 0 0 8px #ff3333; }
+        .diff-custom { color: #ff00ff; text-shadow: 0 0 8px #ff00ff; }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0055;
+            font-size: 32px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 2;
+        }
+        
+        #horizon-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .horizon-wing {
+            position: absolute;
+            width: 50px;
+            height: 3px;
+            background-color: #00ff00;
+            box-shadow: 1px 1px 2px #000;
+        }
+        #hz-left { left: -80px; border-radius: 3px 0 0 3px; }
+        #hz-right { left: 30px; border-radius: 0 3px 3px 0; }
+
+        #tuning-menu {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 380px;
+            background: rgba(10, 15, 25, 0.95);
+            border: 2px solid #ff00ff;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+            border-radius: 10px;
+            padding: 20px;
+            color: #fff;
+            display: none; 
+            z-index: 100;
+        }
+        #tuning-menu h2 { margin-top: 0; text-align: center; color: #ff00ff; font-size: 20px; letter-spacing: 2px; }
+        .menu-row { margin: 15px 0; display: flex; flex-direction: column; }
+        .menu-row label { font-size: 13px; margin-bottom: 5px; color: #a0a5b5; font-weight: bold; }
+        .menu-row-inner { display: flex; align-items: center; justify-content: space-between; }
+        .menu-row input[type="range"] { flex-grow: 1; margin-right: 15px; accent-color: #ff00ff; }
+        .menu-value { min-width: 50px; text-align: right; font-weight: bold; color: #00ffff; }
+        #close-menu-btn {
+            width: 100%; padding: 10px; background: #ff00ff; border: none; color: #fff;
+            font-weight: bold; cursor: pointer; border-radius: 4px; margin-top: 10px;
+            font-family: 'Courier New', monospace; font-size: 14px;
+        }
+        #close-menu-btn:hover { background: #cc00cc; }
+
+        #crash-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.5);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-shadow: 3px 3px 0px #000;
+            font-size: 40px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crash-overlay span { font-size: 20px; margin-top: 10px; color: #ffcc00; }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px; left: 20px;
+            color: rgba(255,255,255,0.9);
+            font-size: 11px;
+            background: rgba(0,0,0,0.8);
+            padding: 12px;
+            border-radius: 5px;
+            pointer-events: none;
+            line-height: 1.4;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="osd-left" class="osd-element">
+        <div>RATE: <span id="osd-diff" class="diff-easy">EASY MODE</span></div>
+        <div>STAB: <span id="osd-mode" class="mode-angle">ANGLE (STABILIZED)</span></div>
+        <div>THR : <span id="osd-thr">0</span>%</div>
+    </div>
+    
+    <div id="osd-right" class="osd-element">
+        <div>ALT: <span id="osd-alt">0.0</span>M</div>
+        <div>SPD: <span id="osd-spd">0.0</span>KMH</div>
+        <div>FOV: <span id="osd-fov-val">115</span>°</div>
+    </div>
+
+    <div id="osd-bottom" class="osd-element">
+        <div id="osd-hint">START BUTTON = LAB MENU • SELECT BUTTON = QUICK RESET</div>
+    </div>
+
+    <div id="crosshair">+</div>
+    
+    <div id="horizon-container">
+        <div id="hz-left" class="horizon-wing"></div>
+        <div id="hz-right" class="horizon-wing"></div>
+    </div>
+
+    <div id="tuning-menu">
+        <h2>BETAFLIGHT LAB MENU</h2>
+        <hr style="border-color:#ff00ff; margin-bottom:15px;">
+        
+        <div class="menu-row">
+            <label>CAMERA LENS FIELD OF VIEW (FOV)</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-fov" min="70" max="135" value="115">
+                <span class="menu-value" id="val-fov">115°</span>
+            </div>
+        </div>
+
+        <div style="font-size: 11px; color:#ff00ff; font-weight:bold; margin: 10px 0 5px 0;">CUSTOM PROFILE ATTRIBUTES:</div>
+
+        <div class="menu-row">
+            <label>NON-PROPORTIONAL THROTTLE EXPO (CURVE)</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-threxpo" min="0" max="90" value="45">
+                <span class="menu-value" id="val-threxpo">0.45</span>
+            </div>
+        </div>
+
+        <div class="menu-row">
+            <label>MOTOR THRUST STRENGTH (POWER)</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-thrust" min="50" max="550" value="63">
+                <span class="menu-value" id="val-thrust">63</span>
+            </div>
+        </div>
+
+        <div class="menu-row">
+            <label>TURNING RATE SPEEDS (ACRO SPEED)</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-rates" min="15" max="140" value="28">
+                <span class="menu-value" id="val-rates">2.8</span>
+            </div>
+        </div>
+
+        <div class="menu-row">
+            <label>STABILIZATION ANGLE TILT LIMIT</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-tilt" min="15" max="95" value="40">
+                <span class="menu-value" id="val-tilt">40°</span>
+            </div>
+        </div>
+
+        <div class="menu-row">
+            <label>GRAVITY ENVIRONMENT DROP WEIGHT</label>
+            <div class="menu-row-inner">
+                <input type="range" id="param-gravity" min="10" max="50" value="22">
+                <span class="menu-value" id="val-gravity">22</span>
+            </div>
+        </div>
+
+        <button id="close-menu-btn">SAVE & DISMISS</button>
+    </div>
+
+    <div id="crash-overlay">
+        💥 DISARMED (CRASHED)
+        <span>Press SELECT Button or 'R' Key to Respawn</span>
+    </div>
+
+    <div id="instructions">
+        <strong>CONTROLLER BUTTONS SPLIT CONFIG:</strong><br>
+        • <strong>START Button:</strong> Open / Close Lab Tuning Menu Overlay<br>
+        • <strong>SELECT Button:</strong> Instant Quick Respawn / Reset<br>
+        • <strong>Y Button:</strong> Cycle Preset Speeds (EASY $\rightarrow$ MEDIUM $\rightarrow$ HARD $\rightarrow$ CUSTOM)<br>
+        • <strong>X Button:</strong> Switch Level Stabilization Mode (Angle / Acro)
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        let audioCtx = null;
+        let motorOsc = null;
+        let motorGain = null;
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            motorOsc = audioCtx.createOscillator();
+            motorGain = audioCtx.createGain();
+            motorOsc.type = 'sawtooth';
+            motorOsc.frequency.setValueAtTime(60, audioCtx.currentTime);
+            motorGain.gain.setValueAtTime(0.01, audioCtx.currentTime);
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(450, audioCtx.currentTime);
+            motorOsc.connect(filter);
+            filter.connect(motorGain);
+            motorGain.connect(audioCtx.destination);
+            motorOsc.start();
+        }
+
+        function updateMotorSound(throttle, speed) {
+            if (!audioCtx) return;
+            const targetFreq = 45 + (throttle * 650) + (speed * 0.4);
+            const targetVolume = 0.005 + (throttle * 0.09);
+            motorOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.02);
+            motorGain.gain.setTargetAtTime(targetVolume, audioCtx.currentTime, 0.02);
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); 
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.0025);
+
+        let currentFov = 115;
+        const camera = new THREE.PerspectiveCamera(currentFov, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const sun = new THREE.DirectionalLight(0xfffaed, 1.1);
+        sun.position.set(150, 400, 50);
+        scene.add(sun);
+
+        const groundGeo = new THREE.PlaneGeometry(1200, 1200);
+        const groundMat = new THREE.MeshLambertMaterial({ color: 0x697888 }); 
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        const grid = new THREE.GridHelper(1200, 80, 0xffffff, 0x445464);
+        grid.position.y = 0.01; 
+        scene.add(grid);
+
+        const colliders = [];
+        function registerBox(minX, maxX, minY, maxY, minZ, maxZ) {
+            colliders.push({ minX, maxX, minY, maxY, minZ, maxZ });
+        }
+
+        const concreteMat = new THREE.MeshLambertMaterial({ color: 0xdcdcdc }); 
+        const hazardMat = new THREE.MeshLambertMaterial({ color: 0xff2200 });   
+        const darkMetalMat = new THREE.MeshLambertMaterial({ color: 0x333b45 });
+
+        function makeVisualBlock(w, h, d, px, py, pz, mat=concreteMat) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+            mesh.position.set(px, py, pz);
+            scene.add(mesh);
+            registerBox(px - w/2, px + w/2, py - h/2, py + h/2, pz - d/2, pz + d/2);
+            return mesh;
+        }
+
+        // ==========================================
+        //         MAP EXPANSION OBJECTS MATRIX
+        // ==========================================
+
+        // 1. ORIGINAL MULTI-FLOOR COMPLEX
+        const sbX = 80, sbZ = 90;
+        for (let f = 1; f <= 4; f++) {
+            const y = f * 12;
+            makeVisualBlock(40, 0.8, 40, sbX, y, sbZ); 
+            makeVisualBlock(41, 0.8, 1, sbX, y, sbZ + 20, hazardMat); 
+            makeVisualBlock(41, 0.8, 1, sbX, y, sbZ - 20, hazardMat);
+            if(f === 1) {
+                makeVisualBlock(2, 48, 2, sbX - 19, 24, sbZ - 19);
+                makeVisualBlock(2, 48, 2, sbX + 19, 24, sbZ - 19);
+                makeVisualBlock(2, 48, 2, sbX - 19, 24, sbZ + 19);
+                makeVisualBlock(2, 48, 2, sbX + 19, 24, sbZ + 19);
+            }
+        }
+
+        // 2. INDUSTRIAL HIGH-RISE TOWERS & HIGH BEAM
+        const tw = 30, th = 140;
+        makeVisualBlock(tw, th, tw, -75, th/2, -60); 
+        makeVisualBlock(tw, th, tw, 75, th/2, -60);  
+        makeVisualBlock(tw+1, 4, tw+1, -75, 100, -60, hazardMat);
+        makeVisualBlock(tw+1, 4, tw+1, 75, 100, -60, hazardMat);
+        makeVisualBlock(120, 3, 3, 0, 115, -60, hazardMat);
+
+        // 3. SPANNING HIGH BRIDGE
+        const brY = 22, brZ = -150;
+        makeVisualBlock(160, 3, 20, 0, brY, brZ); 
+        makeVisualBlock(160, 1, 1, 0, brY + 2, brZ + 10, hazardMat); 
+        makeVisualBlock(160, 1, 1, 0, brY + 2, brZ - 10, hazardMat);
+        makeVisualBlock(12, brY, 20, -74, brY/2, brZ);
+        makeVisualBlock(12, brY, 20, 74, brY/2, brZ);
+        makeVisualBlock(8, brY, 20, 0, brY/2, brZ); 
+
+        // 4. CHIMNEY STACK
+        const chX = -105, chZ = 60, chH = 95, chW = 22;
+        makeVisualBlock(1, chH, chW, chX - chW/2, chH/2, chZ); 
+        makeVisualBlock(1, chH, chW, chX + chW/2, chH/2, chZ); 
+        makeVisualBlock(chW, chH, 1, chX, chH/2, chZ - chW/2); 
+        makeVisualBlock(chW, chH, 1, chX, chH/2, chZ + chW/2); 
+        makeVisualBlock(chW+1, 2, chW+1, chX, chH, chZ, hazardMat);
+
+        // 5. ORIGINAL TRACK ARCHWAYS
+        for(let i=0; i<4; i++) {
+            const archZ = 160 - (i * 50);
+            const archX = (i % 2 === 0) ? -25 : 25;
+            makeVisualBlock(2, 16, 2, archX - 8, 8, archZ, hazardMat);
+            makeVisualBlock(2, 16, 2, archX + 8, 8, archZ, hazardMat);
+            makeVisualBlock(18, 2, 2, archX, 16, archZ, concreteMat);
+        }
+
+        // --- NEW CONTENT ARRIVALS ---
+
+        // 6. CARGO GAP / LOW TUNNEL (Directly In Front of Spawn)
+        // Two long cargo walls with a solid overhead slab roof forming a technical line
+        makeVisualBlock(14, 10, 45, -16, 5, -10, darkMetalMat);
+        makeVisualBlock(14, 10, 45,  16, 5, -10, darkMetalMat);
+        makeVisualBlock(46, 2, 45, 0, 11, -10, hazardMat); // Tunnel Ceiling
+
+        // 7. SLALOM PILLAR MAZE (West Field)
+        // A rapid sequence of tight, vertical hazard columns to weave through horizontally
+        for (let s = 0; s < 6; s++) {
+            let px = -120 + (s * 14);
+            let pz = -10 - (s * 18);
+            makeVisualBlock(3, 45, 3, px, 22.5, pz, hazardMat);
+        }
+
+        // 8. THE CONSTRUCTION TOWER CRANE (Far Rear-Right Corner Matrix)
+        // Massive structure adding vertical geometry for diving and loops
+        const craneX = 130, craneZ = -110;
+        makeVisualBlock(5, 110, 5, craneX, 55, craneZ, darkMetalMat); // Main vertical pillar
+        makeVisualBlock(90, 4, 4, craneX - 30, 112, craneZ, hazardMat); // Long active boom arm 
+        makeVisualBlock(30, 4, 4, craneX + 15, 112, craneZ, concreteMat); // Counterweight balance block
+
+        // 9. THE GRAND PORTAL FRAME (South Horizon Gate)
+        // Massive hollow portal frame
+        const gpZ = 240;
+        makeVisualBlock(6, 65, 6, -35, 32.5, gpZ, concreteMat); // Left Post
+        makeVisualBlock(6, 65, 6,  35, 32.5, gpZ, concreteMat); // Right Post
+        makeVisualBlock(76, 6, 6,   0, 62.5, gpZ, hazardMat); // Top Crossbeam
+
+        // ==========================================
+        //               LOGIC SYSTEMS
+        // ==========================================
+
+        const state = {
+            pos: new THREE.Vector3(0, 3, 50), // Pulled back slightly for expansion sightlines
+            velocity: new THREE.Vector3(0, 0, 0),
+            angularVelocity: new THREE.Vector3(0, 0, 0),
+            droneQuat: new THREE.Quaternion(), 
+            throttle: 0,
+            crashed: false,
+            mode: 'ANGLE',
+            difficulty: 'EASY', 
+            menuOpen: false,
+            btnDebounceMode: false,
+            btnDebounceReset: false,
+            btnDebounceDiff: false,
+            btnDebounceMenu: false
+        };
+
+        const PRESETS = {
+            EASY:   { gravity: 22.0, maxThrust: 63,  thrExpo: 0.45, maxAcroRate: 2.8, maxAngleTilt: 0.40, hint: "EASY MODE: Stable flight level holds, smooth throttle curves." },
+            MEDIUM: { gravity: 28.0, maxThrust: 165, thrExpo: 0.50, maxAcroRate: 5.5, maxAngleTilt: 0.65, hint: "MEDIUM MODE: Sport handling metrics, progressive lift curve." },
+            HARD:   { gravity: 35.0, maxThrust: 440, thrExpo: 0.65, maxAcroRate: 8.8, maxAngleTilt: 0.85, hint: "HARD MODE: Real mechanical 12:1 power settings unlocked." },
+            CUSTOM: { gravity: 22.0, maxThrust: 63,  thrExpo: 0.45, maxAcroRate: 2.8, maxAngleTilt: 0.40, hint: "CUSTOM RATE TUNING ACTIVE: Modify sliders live!" }
+        };
+
+        const SETTINGS = {
+            linearDrag: 0.16,     
+            angularDrag: 0.94,    
+            cameraTilt: 0.38,     
+            expo: 0.30 
+        };
+
+        const menuContainer = document.getElementById('tuning-menu');
+        const slideFov = document.getElementById('param-fov');
+        const slideThrust = document.getElementById('param-thrust');
+        const slideRates = document.getElementById('param-rates');
+        const slideTilt = document.getElementById('param-tilt');
+        const slideGravity = document.getElementById('param-gravity');
+        const slideThrExpo = document.getElementById('param-threxpo');
+
+        const labelFov = document.getElementById('val-fov');
+        const labelThrust = document.getElementById('val-thrust');
+        const labelRates = document.getElementById('val-rates');
+        const labelTilt = document.getElementById('val-tilt');
+        const labelGravity = document.getElementById('val-gravity');
+        const labelThrExpo = document.getElementById('val-threxpo');
+
+        function syncSlidersToCustomProfile() {
+            PRESETS.CUSTOM.maxThrust = parseFloat(slideThrust.value);
+            PRESETS.CUSTOM.thrExpo = parseFloat(slideThrExpo.value) / 100;
+            PRESETS.CUSTOM.maxAcroRate = parseFloat(slideRates.value) / 10;
+            PRESETS.CUSTOM.maxAngleTilt = (parseFloat(slideTilt.value) * Math.PI) / 180;
+            PRESETS.CUSTOM.gravity = parseFloat(slideGravity.value);
+            
+            labelThrust.innerText = slideThrust.value;
+            labelThrExpo.innerText = (parseFloat(slideThrExpo.value) / 100).toFixed(2);
+            labelRates.innerText = (parseFloat(slideRates.value) / 10).toFixed(1);
+            labelTilt.innerText = slideTilt.value + "°";
+            labelGravity.innerText = slideGravity.value;
+        }
+
+        slideFov.addEventListener('input', () => {
+            currentFov = parseInt(slideFov.value);
+            labelFov.innerText = currentFov + "°";
+            camera.fov = currentFov;
+            camera.updateProjectionMatrix();
+            document.getElementById('osd-fov-val').innerText = currentFov;
+        });
+        slideThrust.addEventListener('input', () => { state.difficulty = 'CUSTOM'; syncSlidersToCustomProfile(); });
+        slideThrExpo.addEventListener('input', () => { state.difficulty = 'CUSTOM'; syncSlidersToCustomProfile(); });
+        slideRates.addEventListener('input', () => { state.difficulty = 'CUSTOM'; syncSlidersToCustomProfile(); });
+        slideTilt.addEventListener('input', () => { state.difficulty = 'CUSTOM'; syncSlidersToCustomProfile(); });
+        slideGravity.addEventListener('input', () => { state.difficulty = 'CUSTOM'; syncSlidersToCustomProfile(); });
+
+        function toggleMenu() {
+            state.menuOpen = !state.menuOpen;
+            menuContainer.style.display = state.menuOpen ? 'block' : 'none';
+        }
+        document.getElementById('close-menu-btn').addEventListener('click', () => toggleMenu());
+
+        function applyExpo(input, expo) {
+            const absIn = Math.abs(input);
+            return Math.sign(input) * ((1 - expo) * absIn + expo * Math.pow(absIn, 3));
+        }
+
+        function resetDrone() {
+            state.pos.set(0, 3, 50);
+            state.velocity.set(0, 0, 0);
+            state.angularVelocity.set(0, 0, 0);
+            state.throttle = 0;
+            state.crashed = false;
+            state.droneQuat.set(0, 0, 0, 1);
+            document.getElementById('crash-overlay').style.display = 'none';
+        }
+
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'KeyR') resetDrone();
+            if (e.code === 'KeyM' || e.code === 'Escape') toggleMenu();
+            initAudio();
+        });
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        const clock = new THREE.Clock();
+        
+        const uiAlt = document.getElementById('osd-alt');
+        const uiSpd = document.getElementById('osd-spd');
+        const uiThr = document.getElementById('osd-thr');
+        const uiMode = document.getElementById('osd-mode');
+        const uiDiff = document.getElementById('osd-diff');
+        const uiHint = document.getElementById('osd-hint');
+        const hzContainer = document.getElementById('horizon-container');
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.05);
+
+            let rawStickYaw = 0;
+            let rawStickPitch = 0;
+            let rawStickRoll = 0;
+
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const gp = gamepads.find(pad => pad !== null);
+
+            const activeProfile = PRESETS[state.difficulty];
+
+            if (gp) {
+                initAudio();
+                
+                // SELECT Button -> Instant Reset / Respawn
+                if (gp.buttons[8]?.pressed) {
+                    if (!state.btnDebounceReset) {
+                        resetDrone();
+                        state.btnDebounceReset = true;
+                    }
+                } else {
+                    state.btnDebounceReset = false;
+                }
+
+                // START Button -> Toggle Tuning Lab Menu Window
+                if (gp.buttons[9]?.pressed) {
+                    if (!state.btnDebounceMenu) {
+                        toggleMenu();
+                        state.btnDebounceMenu = true;
+                    }
+                } else {
+                    state.btnDebounceMenu = false;
+                }
+
+                // X Button -> Angle / Acro Mode Trigger
+                if (gp.buttons[2]?.pressed) { 
+                    if (!state.btnDebounceMode) {
+                        state.mode = state.mode === 'ANGLE' ? 'ACRO' : 'ANGLE';
+                        state.btnDebounceMode = true;
+                    }
+                } else {
+                    state.btnDebounceMode = false;
+                }
+
+                // Y Button -> Switch Flight Difficulties
+                if (gp.buttons[3]?.pressed) {
+                    if (!state.btnDebounceDiff) {
+                        if (state.difficulty === 'EASY') state.difficulty = 'MEDIUM';
+                        else if (state.difficulty === 'MEDIUM') state.difficulty = 'HARD';
+                        else if (state.difficulty === 'HARD') state.difficulty = 'CUSTOM';
+                        else state.difficulty = 'EASY';
+                        state.btnDebounceDiff = true;
+                    }
+                } else {
+                    state.btnDebounceDiff = false;
+                }
+
+                if (!state.crashed && !state.menuOpen) {
+                    let rawThrottleStick = gp.axes[1]; 
+                    state.throttle = Math.max(0, Math.min(1, (rawThrottleStick * -1 + 1) / 2));
+                    
+                    rawStickYaw = applyExpo(gp.axes[0], SETTINGS.expo);   
+                    rawStickPitch = applyExpo(gp.axes[3], SETTINGS.expo); 
+                    rawStickRoll = applyExpo(gp.axes[2], SETTINGS.expo);  
+                }
+            } else {
+                if (!state.crashed && !state.menuOpen) {
+                    if (keys['Space']) state.throttle = 1.0;
+                    else if (keys['KeyW']) state.throttle = 0.50; 
+                    else state.throttle = 0.0;
+
+                    if (keys['ArrowUp']) rawStickPitch = -0.7;
+                    if (keys['ArrowDown']) rawStickPitch = 0.7;
+                    if (keys['ArrowLeft']) rawStickRoll = 0.7;
+                    if (keys['ArrowRight']) rawStickRoll = -0.7;
+                    if (keys['KeyA']) rawStickYaw = -0.7;
+                    if (keys['KeyD']) rawStickYaw = 0.7;
+                }
+            }
+
+            if (!state.crashed && !state.menuOpen) {
+                let targetPitchRate = 0;
+                let targetRollRate = 0;
+                let targetYawRate = rawStickYaw * -activeProfile.maxAcroRate * 0.8;
+
+                if (state.mode === 'ANGLE') {
+                    const currentEuler = new THREE.Euler().setFromQuaternion(state.droneQuat, 'YXZ');
+                    const commandedPitch = rawStickPitch * activeProfile.maxAngleTilt;
+                    const commandedRoll = rawStickRoll * -activeProfile.maxAngleTilt;
+
+                    targetPitchRate = (commandedPitch - currentEuler.x) * 24; 
+                    targetRollRate = (commandedRoll - currentEuler.z) * 24;
+                } else {
+                    targetPitchRate = rawStickPitch * activeProfile.maxAcroRate;
+                    targetRollRate = rawStickRoll * -activeProfile.maxAcroRate;
+                }
+
+                state.angularVelocity.x += (targetPitchRate - state.angularVelocity.x) * 32 * dt;
+                state.angularVelocity.y += (targetYawRate - state.angularVelocity.y) * 32 * dt;
+                state.angularVelocity.z += (targetRollRate - state.angularVelocity.z) * 32 * dt;
+
+                const deltaRotation = new THREE.Quaternion().setFromEuler(
+                    new THREE.Euler(state.angularVelocity.x * dt, state.angularVelocity.y * dt, state.angularVelocity.z * dt, 'YXZ')
+                );
+                state.droneQuat.multiply(deltaRotation);
+
+                state.velocity.y -= activeProfile.gravity * dt;
+                
+                // NON-PROPORTIONAL EXPONENTIAL THROTTLE MATH MATRIX
+                let expoFactor = activeProfile.thrExpo || 0;
+                let activeCurvedThrottle = state.throttle * (1 - expoFactor) + Math.pow(state.throttle, 3) * expoFactor;
+
+                const thrustVector = new THREE.Vector3(0, 1, 0).applyQuaternion(state.droneQuat);
+                state.velocity.addScaledVector(thrustVector, (activeCurvedThrottle * activeProfile.maxThrust) * dt);
+                state.velocity.multiplyScalar(1 - (SETTINGS.linearDrag * dt));
+                state.pos.addScaledVector(state.velocity, dt);
+            }
+
+            if (state.pos.y <= 0.25) { 
+                if (state.velocity.y < -11.0) state.crashed = true; 
+                state.pos.y = 0.25;
+                state.velocity.y = 0;
+            }
+
+            const px = state.pos.x, py = state.pos.y, pz = state.pos.z;
+            for (let i = 0; i < colliders.length; i++) {
+                const c = colliders[i];
+                if (px >= c.minX && px <= c.maxX &&
+                    py >= c.minY && py <= c.maxY &&
+                    pz >= c.minZ && pz <= c.maxZ) {
+                    state.crashed = true;
+                    break;
+                }
+            }
+
+            camera.position.copy(state.pos);
+            camera.quaternion.copy(state.droneQuat);
+            camera.rotateX(SETTINGS.cameraTilt); 
+
+            if (state.crashed) document.getElementById('crash-overlay').style.display = 'flex';
+
+            const vUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion.clone().invert());
+            const rollAngle = Math.atan2(vUp.x, vUp.y) * (180 / Math.PI);
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const pitchOffset = (forward.y - Math.sin(SETTINGS.cameraTilt)) * 100; 
+
+            if(hzContainer) {
+                hzContainer.style.transform = `translate(-50%, calc(-50% + ${pitchOffset}px)) rotate(${rollAngle}deg)`;
+            }
+
+            if (state.mode === 'ANGLE') {
+                uiMode.innerText = "ANGLE (STABILIZED)";
+                uiMode.className = "mode-angle";
+            } else {
+                uiMode.innerText = "ACRO (MANUAL)";
+                uiMode.className = "mode-acro";
+            }
+
+            uiDiff.innerText = state.difficulty + " MODE";
+            uiDiff.className = "diff-" + state.difficulty.toLowerCase();
+            uiHint.innerText = activeProfile.hint;
+
+            const kmhSpeed = state.velocity.length() * 3.6;
+            uiAlt.innerText = Math.max(0, state.pos.y).toFixed(1);
+            uiSpd.innerText = kmhSpeed.toFixed(0);
+            uiThr.innerText = Math.round(state.throttle * 100);
+
+            updateMotorSound(state.throttle, state.velocity.length());
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
